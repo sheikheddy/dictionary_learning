@@ -71,23 +71,27 @@ An `ActivationBuffer` is initialized from an `nnsight` `LanguageModel` object, a
 
 Here's an example for training a dictionary; in it we load a language model as an `nnsight` `LanguageModel` (this will work for any Huggingface model), specify a submodule, create an `ActivationBuffer`, and then train an autoencoder with `trainSAE`.
 ```python
-from nnsight import LanguageModel
+from dictionary_learning.evaluation import loss_recovered
 from dictionary_learning import ActivationBuffer, AutoEncoder
 from dictionary_learning.trainers import StandardTrainer
 from dictionary_learning.training import trainSAE
+from nnsight import LanguageModel
+import torch
+import os
 
+# Your existing code to initialize the model
 device = "cuda:0"
-model_name = "EleutherAI/pythia-70m-deduped" # can be any Huggingface model
+model_name = "EleutherAI/pythia-70m-deduped" 
 
 model = LanguageModel(
     model_name,
     device_map=device,
 )
-submodule = model.gpt_neox.layers[1].mlp # layer 1 MLP
-activation_dim = 512 # output dimension of the MLP
+submodule = model.gpt_neox.layers[1].mlp
+activation_dim = 512
 dictionary_size = 16 * activation_dim
 
-# data must be an iterator that outputs strings
+# Sample data iterator
 data = iter(
     [
         "This is some example data",
@@ -95,15 +99,18 @@ data = iter(
         "you would need much more data than this",
     ]
 )
+
+# Activation buffer
 buffer = ActivationBuffer(
     data=data,
     model=model,
     submodule=submodule,
-    d_submodule=activation_dim, # output dimension of the model component
-    n_ctxs=3e4,  # you can set this higher or lower dependong on your available memory
+    d_submodule=activation_dim,
+    n_ctxs=3e4,
     device=device,
-)  # buffer will yield batches of tensors of dimension = submodule's output dimension
+)
 
+# Train the autoencoder
 trainer_cfg = {
     "trainer": StandardTrainer,
     "dict_class": AutoEncoder,
@@ -111,13 +118,32 @@ trainer_cfg = {
     "dict_size": dictionary_size,
     "lr": 1e-3,
     "device": device,
+    "layer": 1,
+    "lm_name": model_name,
 }
 
-# train the sparse autoencoder (SAE)
+save_path = os.path.join(os.getcwd(),"dictionary_learning","dictionaries")
+
+# Train the sparse autoencoder (SAE)
 ae = trainSAE(
-    data=buffer,  # you could also use another (i.e. pytorch dataloader) here instead of buffer
+    data=buffer,
     trainer_configs=[trainer_cfg],
+    save_dir= save_path
+    )
+
+ae_dict = AutoEncoder.from_pretrained(os.path.join(save_path,"trainer_0","ae.pt")).to(device)
+
+# Evaluate the recovered loss
+evaluation_results = loss_recovered(
+    text="Some evaluation text",
+    model=model,
+    submodule=submodule,
+    dictionary=ae_dict,
+    io="out",  # Set this to 'in', 'out', or 'in_and_out' depending on what you want to evaluate
 )
+
+# Print the evaluation results
+print(evaluation_results)
 ```
 Some technical notes our training infrastructure and supported features:
 * Training uses the `ConstrainedAdam` optimizer defined in `training.py`. This is a variant of Adam which supports constraining the `AutoEncoder`'s decoder weights to be norm 1.

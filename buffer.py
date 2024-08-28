@@ -105,7 +105,7 @@ class ActivationBuffer:
         self.activations = self.activations[~self.read]
 
         current_idx = len(self.activations)
-        new_activations = t.empty(self.activation_buffer_size, self.d_submodule, device=self.device)
+        new_activations = t.empty((int(self.activation_buffer_size)), self.d_submodule, device=self.device)
 
         new_activations[: len(self.activations)] = self.activations
         self.activations = new_activations
